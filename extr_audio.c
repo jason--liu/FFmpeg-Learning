@@ -12,7 +12,7 @@ void adts_header(char* szAdtsHeader, int dataLen)
 {
 
     int audio_object_type        = 2;
-    int sampling_frequency_index = 7;
+    int sampling_frequency_index = 4;
     int channel_config           = 2;
 
     int adtsLen = dataLen + 7;
@@ -103,7 +103,7 @@ int main(int argc, char* argv[])
     }
 
     av_dump_format(fmt_ctx, 0, src_file, 0);
-
+#if 0
     in_stream                      = fmt_ctx->streams[1];
     AVCodecParameters* in_codecpar = in_stream->codecpar;
     if (in_codecpar->codec_type != AVMEDIA_TYPE_AUDIO)
@@ -152,6 +152,7 @@ int main(int argc, char* argv[])
 
     av_dump_format(ofmt_ctx, 0, dst_file, 1);
 
+#endif
     audio_stream_index = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
     if (audio_stream_index < 0)
     {
@@ -159,43 +160,44 @@ int main(int argc, char* argv[])
         goto error;
     }
 
-
     av_init_packet(&pkt);
     pkt.data = NULL;
     pkt.size = 0;
     int len  = 0;
-
-    if (avformat_write_header(ofmt_ctx, NULL) < 0) {
-        av_log(NULL, AV_LOG_DEBUG, "Error occurred when opening output file");
-        exit(1);
-    }
+    /*
+        if (avformat_write_header(ofmt_ctx, NULL) < 0) {
+            av_log(NULL, AV_LOG_DEBUG, "Error occurred when opening output file");
+            exit(1);
+            }*/
 
     while (av_read_frame(fmt_ctx, &pkt) >= 0)
     {
         if (pkt.stream_index == audio_stream_index)
         {
-            /* char adts_header_buf[7]; */
+            char adts_header_buf[7];
 
-            /* adts_header(adts_header_buf, pkt.size); */
-            /* fwrite(adts_header_buf, 1, 7, dst_fd); */
+            adts_header(adts_header_buf, pkt.size);
+            /* addADTStoPacket(adts_header_buf, pkt.size); */
+            fwrite(adts_header_buf, 1, 7, dst_fd);
 
-            /* len = fwrite(pkt.data, 1, pkt.size, dst_fd); */
-            /* if (len != pkt.size) */
-            /* { */
-            /*     av_log(NULL, AV_LOG_WARNING, "write size is not equal pkt size\n"); */
-            /* } */
+            len = fwrite(pkt.data, 1, pkt.size, dst_fd);
+            if (len != pkt.size)
+            {
+                av_log(NULL, AV_LOG_WARNING, "write size is not equal pkt size\n");
+            }
             // release a packet after write it
-            pkt.pts = av_rescale_q_rnd(pkt.pts, in_stream->time_base, out_stream->time_base, (AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
-            pkt.dts = pkt.pts;
-            pkt.duration = av_rescale_q(pkt.duration, in_stream->time_base, out_stream->time_base);
-            pkt.pos = -1;
-            pkt.stream_index = 0;
-            av_interleaved_write_frame(ofmt_ctx, &pkt);
+            /* pkt.pts = av_rescale_q_rnd( */
+            /*     pkt.pts, in_stream->time_base, out_stream->time_base, (AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX)); */
+            /* pkt.dts          = pkt.pts; */
+            /* pkt.duration     = av_rescale_q(pkt.duration, in_stream->time_base, out_stream->time_base); */
+            /* pkt.pos          = -1; */
+            /* pkt.stream_index = 0; */
+            /* av_interleaved_write_frame(ofmt_ctx, &pkt); */
             av_packet_unref(&pkt);
             /* av_packet_unref(&pkt); */
         }
     }
-    av_write_trailer(ofmt_ctx);
+    /* av_write_trailer(ofmt_ctx); */
 
 error:
     av_log(NULL, AV_LOG_INFO, "start free\n");
