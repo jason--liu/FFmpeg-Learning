@@ -40,13 +40,13 @@ static int h264_extradata_to_annexb(
     len        = (*pExtraData++ & 0x03) + 1;
 
     /* get sps */
-    spsUnitNum = (*pExtraData++ & 0x1);
+    spsUnitNum = (*pExtraData++ & 0x1f);
     while (spsUnitNum--)
     {
         unitSize = (pExtraData[0] << 8 | pExtraData[1]); // sps size,two bytes
         pExtraData += 2;
         totolSize += unitSize + sizeof(startCode);
-        av_log(NULL, AV_LOG_INFO, "unitSize:%d\n", unitSize);
+        //av_log(NULL, AV_LOG_INFO, "unitSize:%d\n", unitSize);
 
         if (totolSize > INT_MAX - padding)
         {
@@ -67,7 +67,7 @@ static int h264_extradata_to_annexb(
             av_log(NULL, AV_LOG_ERROR, "av_reallocp error\n");
             return err;
         }
-
+        // av_log(NULL, AV_LOG_DEBUG, "totolSize(%d) unitSize(%d) lenStartCode(%d)\n", totolSize, unitSize, sizeof(startCode));
         // copy startcode
         memcpy(pOut + totolSize - unitSize - sizeof(startCode), startCode, sizeof(startCode));
         // copy sps data
@@ -82,7 +82,7 @@ static int h264_extradata_to_annexb(
         unitSize = (pExtraData[0] << 8 | pExtraData[1]); // sps size,two bytes
         pExtraData += 2;
         totolSize += unitSize + sizeof(startCode);
-        av_log(NULL, AV_LOG_INFO, "unitSize2:%d\n", unitSize);
+        //av_log(NULL, AV_LOG_INFO, "unitSize2:%d\n", unitSize);
 
         if (totolSize > INT_MAX - padding)
         {
@@ -97,7 +97,7 @@ static int h264_extradata_to_annexb(
             /* av_free(pOut); */
             return AVERROR(EINVAL);
         }
-
+        /* expand the memory*/
         if ((err = av_reallocp(&pOut, totolSize + padding)) < 0)
         {
             av_log(NULL, AV_LOG_ERROR, "av_reallocp error\n");
@@ -177,7 +177,7 @@ static int h264Mp4ToAnnexb(AVFormatContext* pAVFormatContext, AVPacket* PAvPkt, 
             av_log(NULL, AV_LOG_WARNING, "fwrite warning(%d %d)\n", len, pOutPkt->size);
 
         fflush(pFd);
-        curSize += nalusize + 4; // add start code;
+        curSize += nalusize + 4; // add first 4 bytes;
         pData += nalusize;
     }
 fail:
