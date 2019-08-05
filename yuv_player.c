@@ -7,7 +7,7 @@
 #define BREAK_EVENT (SDL_USEREVENT + 2)
 
 static int screen_w = 1000, screen_h = 1000;
-const pixel_w = 1280, pixel_h = 720;
+const int pixel_w = 1280, pixel_h = 712;
 
 #define PIXEL_SIZE pixel_w* pixel_h * 12 / 8
 static thread_exit = 0;
@@ -18,6 +18,7 @@ static int refresh_frame(void* arg)
     SDL_Event event;
 
     while (!thread_exit) {
+        event.type = REFRESH_EVENT;
         SDL_PushEvent(&event);
         SDL_Delay(40);
     }
