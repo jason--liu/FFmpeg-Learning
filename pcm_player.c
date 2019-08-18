@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <SDL.h>
+#include <SDL2/SDL.h>
 
 #define BLOCK_SIZE 4096000
 static int      buffer_len = 0;
@@ -10,15 +10,17 @@ static uint8_t* audio_pos  = NULL;
 
 void read_audio_callback(void* udata, Uint8* stream, int len)
 {
+    (void)udata;
     if (buffer_len == 0)
         return;
 
     SDL_memset(stream, 0, len);
     len = (len < buffer_len) ? len : buffer_len;
     SDL_MixAudio(stream, audio_pos, len, SDL_MIX_MAXVOLUME);
+    /* memcpy(stream, audio_pos, len); */
 
     audio_pos += len;
-    buffer_len -= len;
+    /* buffer_len -= len; */
 }
 
 int main(int argc, char* argv[])
@@ -50,12 +52,12 @@ int main(int argc, char* argv[])
         goto __FAIL;
     }
 
-    spec.freq      = 44100;
-    spec.format    = AUDIO_S16SYS;
-    spec.channels  = 2;
-    spec.silence   = 0;
-    spec.samples   = 2048;
-    spec.callback  = read_audio_callback;
+    spec.freq     = 44100;
+    spec.format   = AUDIO_S16SYS;
+    spec.channels = 2;
+    spec.silence  = 0;
+    spec.samples  = 1024;
+    spec.callback = read_audio_callback;
     spec.userdata = NULL;
 
     if (SDL_OpenAudio(&spec, NULL)) {
@@ -67,10 +69,9 @@ int main(int argc, char* argv[])
 
     do {
         buffer_len = fread(audio_buf, 1, BLOCK_SIZE, audio_fd);
-        printf("block size is %zu\n", buffer_len);
+        audio_pos  = (uint8_t*)audio_buf;
 
-        audio_pos = audio_buf;
-        while (audio_pos < (audio_buf + buffer_len)) {
+        while (audio_pos < (uint8_t*)(audio_buf + buffer_len)) {
             SDL_Delay(1);
         }
     } while (buffer_len != 0);
