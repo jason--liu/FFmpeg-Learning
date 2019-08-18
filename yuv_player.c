@@ -1,4 +1,4 @@
-#include <SDL.h>
+#include <SDL2/SDL.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,10 +7,10 @@
 #define BREAK_EVENT (SDL_USEREVENT + 2)
 
 static int screen_w = 1000, screen_h = 1000;
-const int pixel_w = 1280, pixel_h = 712;
+const int  pixel_w = 1280, pixel_h = 712;
 
 #define PIXEL_SIZE pixel_w* pixel_h * 12 / 8
-static thread_exit = 0;
+static int thread_exit = 0;
 static int refresh_frame(void* arg)
 {
     (void)arg;
@@ -43,6 +43,10 @@ int main(int argc, char* argv[])
     SDL_Rect      r;
 
     FILE* fp = NULL;
+    if (argc < 2) {
+        fprintf(stderr, "Usage %s <file>.yuv\n", argv[0]);
+        return -1;
+    }
 
     ret = SDL_Init(SDL_INIT_VIDEO);
     if (ret < 0) {
@@ -66,7 +70,7 @@ int main(int argc, char* argv[])
     // create texture according to pixel size
     texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING, pixel_w, pixel_h);
 
-    fp = fopen("out.yuv", "rb+");
+    fp = fopen(argv[1], "rb+");
     if (!fp) {
         printf("can not open yuv file\n");
         goto __quit;
@@ -77,16 +81,17 @@ int main(int argc, char* argv[])
         printf("malloc failed!\n");
         goto __quit1;
     }
-    
+
     refresh_thread = SDL_CreateThread(refresh_frame, NULL, NULL);
 
-    for (;;) {
+    while (!feof(fp)) {
         SDL_WaitEvent(&event);
+
         if (event.type == REFRESH_EVENT) {
             memset(buffer, 0, PIXEL_SIZE);
             if ((fread(buffer, 1, PIXEL_SIZE, fp)) != PIXEL_SIZE) {
-                fseek(fp, 0, SEEK_SET);
-                fread(buffer, 1, PIXEL_SIZE, fp);
+                /* fseek(fp, 0, SEEK_SET); */
+                /* fread(buffer, 1, PIXEL_SIZE, fp); */
             }
 
             SDL_UpdateTexture(texture, NULL, buffer, pixel_w);
@@ -109,6 +114,8 @@ int main(int argc, char* argv[])
             break;
         }
     }
+
+    fclose(fp);
 
     if (!buffer) {
         free(buffer);
