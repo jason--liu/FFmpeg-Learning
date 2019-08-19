@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include <SDL2/SDL.h>
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -60,10 +61,14 @@ int main(int argc, char* argv[])
         return ret;
     }
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) < 0) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "sdl init failed\n");
-        return ret;
-    }
+    FILE* yuv_file = fopen("yuv_file", "ab");
+    if (!yuv_file)
+        return 0;
+
+    /* if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) < 0) { */
+    /*     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "sdl init failed\n"); */
+    /*     return ret; */
+    /* } */
 
     //av_register_all()
 
@@ -87,9 +92,15 @@ int main(int argc, char* argv[])
     }
 
     videoStream = ret;
-    /* pCodecCtxOrg = pFormatCtx->streams[videoStream]->codec; */
+    /* pCodecCtxOrg = pFormatCtx->streams[videoStream]->codec; */ //deprecated
     pCodecCtx = avcodec_alloc_context3(pCodec);
-    /* if(avcodec_copy_context()) */
+
+    /* Copy codec parameters from input stream to output codec context */
+    if ((ret = avcodec_parameters_to_context(pCodecCtx, pFormatCtx->streams[videoStream]->codecpar)) < 0) {
+        fprintf(stderr, "Failed to copy %s codec parameters to decoder context\n",
+            av_get_media_type_string(AVMEDIA_TYPE_VIDEO));
+        goto exit;
+    }
 
     // open codec
     if (avcodec_open2(pCodecCtx, pCodec, NULL)) {
@@ -102,42 +113,76 @@ int main(int argc, char* argv[])
     w_height = pCodecCtx->height;
 
     // create window
-    win = SDL_CreateWindow("Player", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w_width, w_height, SDL_WINDOW_OPENGL | SDL_WINDOWEVENT_RESIZED);
-    if (!win) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "failed to create sdl window\n");
-        goto exit;
-    }
+    printf("w=%d h=%d\n", w_width, w_height);
+    /* win = SDL_CreateWindow("Player", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, */
+    /*     w_width, w_height, SDL_WINDOW_OPENGL | SDL_WINDOWEVENT_RESIZED); */
+    /* if (!win) { */
+    /*     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "failed to create sdl window\n"); */
+    /*     goto exit; */
+    /* } */
 
     // create renderer
-    renderer = SDL_CreateRenderer(win, -1, 0);
-    if (!renderer) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "failed to create sdl renderer\n");
-        goto exit;
-    }
+    /* renderer = SDL_CreateRenderer(win, -1, 0); */
+    /* if (!renderer) { */
+    /*     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "failed to create sdl renderer\n"); */
+    /*     goto exit; */
+    /* } */
 
     pixformat = SDL_PIXELFORMAT_IYUV;
-    texture   = SDL_CreateTexture(renderer, pixformat, SDL_TEXTUREACCESS_STREAMING, w_width, w_height);
+    /* texture   = SDL_CreateTexture(renderer, pixformat, SDL_TEXTUREACCESS_STREAMING, w_width, w_height); */
 
-    sws_ctx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height, AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
+    /* sws_ctx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, pCodecCtx->width, */
+    /*     pCodecCtx->height, AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL); */
 
-    pict = (AVPicture*)malloc(sizeof(AVPicture));
-    avpicture_alloc(pict, AV_PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height);
+    av_init_packet(&packet);
+    packet.data = NULL;
+    packet.size = 0;
 
+    char* buf = (char*)malloc(w_height * w_width * 3 / 2);
     while (av_read_frame(pFormatCtx, &packet) >= 0) {
         if (packet.stream_index == videoStream) {
-            decode(pCodecCtx, pFrame, &packet, NULL);
-            sws_scale(sws_ctx, pFrame->data, pFrame->linesize, 0, pCodecCtx->height, pict->data, pict->linesize);
+            ret = avcodec_send_packet(pCodecCtx, &packet);
+            if (ret < 0 || ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                break;
+            }
 
-            SDL_UpdateYUVTexture(texture, NULL, pict->data[0], pict->linesize[0], pict->data[1], pict->linesize[1], pict->data[2], pict->linesize[2]);
+            while (ret >= 0) {
+                ret = avcodec_receive_frame(pCodecCtx, pFrame);
+                if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                    break;
+                }
+                /* sws_scale(sws_ctx, pFrame->data, pFrame->linesize, 0, pCodecCtx->height, pict->data, pict->linesize); */
 
-            rect.x = 0;
-            rect.y = 0;
-            rect.w = pCodecCtx->width;
-            rect.h = pCodecCtx->height;
+                memset(buf, 0, w_width * w_height * 3 / 2);
+                int a = 0, i;
+                for (i = 0; i < w_height; i++) {
+                    memcpy(buf + a, pFrame->data[0] + i * pFrame->linesize[0], w_width);
+                    a += w_width;
+                }
+                for (i = 0; i < w_height / 2; i++) {
+                    memcpy(buf + a, pFrame->data[1] + i * pFrame->linesize[1], w_width / 2);
+                    a += w_width / 2;
+                }
+                for (i = 0; i < w_height / 2; i++) {
+                    memcpy(buf + a, pFrame->data[2] + i * pFrame->linesize[2], w_width / 2);
+                    a += w_width / 2;
+                }
+                fwrite(buf, 1, w_height * w_width * 3 / 2, yuv_file);
+                /*
+                SDL_UpdateYUVTexture(texture, NULL,
+                    pFrame->data[0], pFrame->linesize[0],
+                    pFrame->data[1], pFrame->linesize[1],
+                    pFrame->data[2], pFrame->linesize[2]);
 
-            SDL_RenderClear(renderer);
-            SDL_RenderCopy(renderer, texture, NULL, &rect);
-            SDL_RenderPresent(renderer);
+                rect.x = 0;
+                rect.y = 0;
+                rect.w = pCodecCtx->width;
+                rect.h = pCodecCtx->height;
+
+                SDL_RenderClear(renderer);
+                SDL_RenderCopy(renderer, texture, NULL, &rect);
+                SDL_RenderPresent(renderer);*/
+            }
         }
         av_packet_unref(&packet);
     }
@@ -150,6 +195,7 @@ exit:
         SDL_DestroyRenderer(renderer);
     if (texture)
         SDL_DestroyTexture(texture);
+    av_frame_free(&pFrame);
 
     SDL_Quit();
 
