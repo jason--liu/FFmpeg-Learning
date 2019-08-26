@@ -1,0 +1,2 @@
+#!/bin/bash
+clang player2.c `pkg-config --cflags --libs  libavformat libavcodec libswscale libavutil  libswresample sdl2`
