@@ -1,2 +1,3 @@
 #!/bin/bash
-clang player2.c `pkg-config --cflags --libs  libavformat libavcodec libswscale libavutil  libswresample sdl2`
+echo "start compile $1"
+clang $1 `pkg-config --cflags --libs  libavformat libavcodec libswscale libavutil  libswresample sdl2`
