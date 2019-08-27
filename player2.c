@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <assert.h>
 #include <string.h>
+#include <signal.h>
 
 #include <SDL2/SDL.h>
 #include <libavcodec/avcodec.h>
@@ -162,13 +163,20 @@ int audio_decode_frame(VideoState* is, uint8_t* audio_buf, int buf_size)
                 assert(data_size <= buf_size);
                 swr_convert(is->audio_swr_ctx, &audio_buf, MAX_AUDIO_FRAME_SIZE * 3 / 2,
                     (const uint8_t**)is->audio_frame.data, is->audio_frame.nb_samples);
-                fwrite(audio_buf, 1, data_size, audiofd);
-                fflush(audiofd);
-            }
 
-            is->audio_pkt_data += ret;
+                is->audio_pkt_data += ret;
+                is->audio_pkt_size += ret;
+            }
+            return data_size;
         }
-        //TODO:
+        if(pkt->data)
+            av_packet_unref(pkt);
+        if(is->quit)
+            return -1;
+        if(packet_queue_get(&is->audioq, pkt, 1)>0)
+            return -1;
+        is->audio_pkt_data = pkt->data;
+        is->audio_pkt_size = pkt->size;
     }
 }
 
@@ -179,7 +187,7 @@ void audio_callback(void* userdata, uint8_t* stream, int len)
 
     SDL_memset(stream, 0, len);
     while (len > 0) {
-        if (is->audio_buf_index >= is->audio_pkt_size) {
+        if (is->audio_buf_index >= is->audio_buf_size) {
             audio_size = audio_decode_frame(is, is->audio_buf, sizeof(is->audio_buf));
             if (audio_size < 0) {
                 is->audio_buf_size = 1024 * 2 * 2;
@@ -190,7 +198,7 @@ void audio_callback(void* userdata, uint8_t* stream, int len)
             is->audio_buf_index = 0;
         }
         len1 = is->audio_buf_size - is->audio_buf_index;
-        printf("stream addr:%p, audio_buf_index:%d, len1:%d, len:%d\n",
+        printf("stream addr:%p, audio_buf_index:%d, audio_buf_size:%d, len1:%d, len:%d\n",
             stream, is->audio_buf_index, is->audio_buf_size, len1, len);
 
         if (len1 > len)
@@ -258,7 +266,7 @@ int queue_picture(VideoState* is, AVFrame* pFrame)
     //TODO;
 }
 
-int video_thread(void* arg)
+int decode_video_thread(void* arg)
 {
     VideoState* is = (VideoState*)(arg);
     AVPacket    pkt1, *packet = &pkt1;
@@ -373,7 +381,7 @@ int stream_component_open(VideoState* is, int stream_index)
         is->video_st    = pFormatCtx->streams[stream_index];
         is->video_ctx   = codecCtx;
         packet_queue_init(&is->videoq);
-        is->video_tid = SDL_CreateThread(video_thread, "video_thread", is);
+        is->video_tid = SDL_CreateThread(decode_video_thread, "video_thread", is);
         is->sws_ctx   = sws_getContext(is->video_ctx->width, is->video_ctx->height, is->video_ctx->pix_fmt,
             is->video_ctx->width, is->video_ctx->height, AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
         break;
@@ -384,7 +392,7 @@ int stream_component_open(VideoState* is, int stream_index)
     return 0;
 }
 
-int decode_thread(void* arg)
+int demux_thread(void* arg)
 {
     Uint32           pixformat;
     VideoState*      is         = (VideoState*)arg;
@@ -405,10 +413,10 @@ int decode_thread(void* arg)
     av_dump_format(pFormatCtx, 0, is->filename, 0);
     // Find the first video stream
     for (i = 0; i < pFormatCtx->nb_streams; i++) {
-        if (pFormatCtx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO && video_index < 0) {
+        if (pFormatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && video_index < 0) {
             video_index = i;
         }
-        if (pFormatCtx->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO && audio_index < 0) {
+        if (pFormatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && audio_index < 0) {
             audio_index = i;
         }
     }
@@ -462,7 +470,7 @@ int decode_thread(void* arg)
         } else if (packet->stream_index == is->audioStream) {
             packet_queue_put(&is->audioq, packet);
         } else {
-            av_free_packet(packet);
+            av_packet_unref(packet);
         }
     }
     while (!is->quit) {
@@ -478,13 +486,18 @@ fail:
     return 0;
 }
 
-int main(int argc, char *argv[])
+static void sigterm_handler(int sig)
+{
+    exit(123);
+}
+
+int main(int argc, char* argv[])
 {
     int         ret = -1;
     SDL_Event   event;
     VideoState* is;
 
-    is = av_mallocz(sizeof(VideoState));
+    is = (VideoState *)av_mallocz(sizeof(VideoState));
     if (argc < 2) {
         printf("Usage: %s <file>\n", argv[0]);
         return -1;
@@ -493,11 +506,14 @@ int main(int argc, char *argv[])
         printf("could not initialize SDL - %s\n", SDL_GetError());
         return -1;
     }
+    signal(SIGINT , sigterm_handler); /* Interrupt (ANSI).    */
+    signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
+
     texture_mutex = SDL_CreateMutex();
-    av_strlcpy(is->filename, argv[1], sizeof(is->filename));
+    SDL_strlcpy(is->filename, argv[1], sizeof(is->filename));
 
     schedule_refresh(is, 40);
-    is->parse_tid = SDL_CreateThread(video_thread, "demux thread", is);
+    is->parse_tid = SDL_CreateThread(demux_thread, "demux thread", is);
     if (!is->parse_tid) {
         av_free(is);
         goto __FAIL;
