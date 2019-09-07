@@ -20,11 +20,13 @@ int main(int argc, char* argv[])
 {
     AVFormatContext* pFormatCtx = NULL;
     AVCodec*         codec      = NULL;
-    printf("The process ID is %d \n", (int)getpid()); //本进程
 
     if (argc < 2) {
-        printf("Usage: %d <file>\n", argv[0]);
+        printf("Usage: %s <file>\n", argv[0]);
+        return -1;
     }
+
+    printf("The process ID is %d \n", (int)getpid()); //本进程
 
     int re = avformat_open_input(&pFormatCtx, argv[1], 0, 0);
     if (re != 0) {
@@ -104,7 +106,8 @@ int main(int argc, char* argv[])
                 frameCount++;
             }
         }
-        //av_packet_unref(pkt);
+        /* 解码完成后引用计数减一，避免内存泄露 */
+        av_packet_unref(pkt);
     }
     avformat_close_input(&pFormatCtx);
     av_packet_free(&pkt);
